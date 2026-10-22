@@ -2,6 +2,14 @@
 <html lang="ur"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>SMG Battle Drop</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0e141a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SMG Drop">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" type="image/png" href="/icon-192.png">
 <style>
 :root{--bg:#9ec9e8;--btn:#f2a900;--btnfg:#1a1a1a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e141a}}
@@ -39,7 +47,7 @@ html.rot body{position:fixed;left:0;top:0;width:100vh;height:100vw;transform-ori
 <div id="lg"><div class="card"><h1>🪂 SMG Battle Drop</h1><p id="st">Login nahi hua</p><p id="cs">⚪ Server check ho raha hai…</p>
 <label>Naam<input id="nm" maxlength="14" autocomplete="nickname" placeholder="Aapka naam"></label>
 <label>Room code (dosto ke saath same rakho)<input id="rc" maxlength="16" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="main"></label>
-<button id="go">▶ Guest ke taur par khelo</button><button id="gg">Google se login</button><button id="out" style="display:none">Logout</button><p id="er"></p></div></div>
+<button id="go">▶ Guest ke taur par khelo</button><button id="gg">Google se login</button><button id="out" style="display:none">Logout</button><button id="ins" style="display:none">📲 Game install karo</button><p id="ih" style="display:none"></p><p id="er"></p></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const R=new THREE.WebGLRenderer({antialias:true});R.outputEncoding=THREE.sRGBEncoding;R.toneMapping=THREE.ACESFilmicToneMapping;R.toneMappingExposure=1.05;R.shadowMap.enabled=true;R.shadowMap.type=THREE.PCFSoftShadowMap;R.setPixelRatio(Math.min(devicePixelRatio,2));R.domElement.id='g';document.body.prepend(R.domElement);
@@ -337,15 +345,27 @@ function upd(dt){smk(dt);mp(dt);
 start();let t0=0;
 function loop(t){const dt=Math.min(.05,(t-t0)/1000||0);t0=t;upd(dt);R.render(S,C);requestAnimationFrame(loop)}
 requestAnimationFrame(loop);
-</script><script type="module">
+</script><script>
+// ---- PWA: service worker + install button ----
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+{const ins=document.getElementById('ins'),ih=document.getElementById('ih');let dp=null;
+ const standalone=()=>matchMedia('(display-mode: standalone)').matches||matchMedia('(display-mode: fullscreen)').matches||navigator.standalone;
+ const hide=()=>{ins.style.display='none';ih.style.display='none'};
+ addEventListener('beforeinstallprompt',e=>{e.preventDefault();dp=e;if(!standalone())ins.style.display='block'});
+ ins.addEventListener('click',async()=>{if(!dp)return;dp.prompt();try{await dp.userChoice}catch(_){}dp=null;hide()});
+ addEventListener('appinstalled',hide);
+ if(!standalone()&&/iphone|ipad|ipod/i.test(navigator.userAgent)){ih.textContent='📲 Install: Safari mein Share (⬆︎) dabao → "Add to Home Screen".';ih.style.display='block'}}
+</script>
+<script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-analytics.js";
-import { getAuth, onAuthStateChanged, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
+import { getAuth, onAuthStateChanged, signInAnonymously, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
 import { getDatabase, ref, set, push, remove, onValue, onChildAdded, onDisconnect, query, orderByChild, startAt } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDGyO9ZVnPbGLdNlfZ8Gm_4SAUOndmL9P4",
-  authDomain: "smgs-5cc5b.firebaseapp.com",
+  // On Vercel the auth handler is proxied through your own domain (see vercel.json) so mobile browsers do not block it
+  authDomain: location.hostname.endsWith(".vercel.app") ? location.hostname : "smgs-5cc5b.firebaseapp.com",
   // Copy the exact URL from Firebase console > Realtime Database (it differs if your DB is not in us-central1)
   databaseURL: "https://smgs-5cc5b-default-rtdb.firebaseio.com",
   projectId: "smgs-5cc5b",
@@ -393,6 +413,7 @@ function render() {
   }
 }
 onAuthStateChanged(auth, render);
+getRedirectResult(auth).then(render).catch(showErr);
 
 // ---- room ----
 let session = null;
@@ -446,7 +467,13 @@ go.addEventListener('click', play);
 [nm, rc].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') play() }));
 gg.addEventListener('click', async () => {
   er.textContent = '';
-  try { await signInWithPopup(auth, new GoogleAuthProvider()); render() } catch (e) { showErr(e) }
+  const p = new GoogleAuthProvider();
+  try { await signInWithPopup(auth, p); render() }
+  catch (e) {
+    if (['auth/popup-blocked', 'auth/cancelled-popup-request', 'auth/operation-not-supported-in-this-environment'].includes(e.code)) {
+      try { await signInWithRedirect(auth, p) } catch (e2) { showErr(e2) }
+    } else showErr(e);
+  }
 });
 out.addEventListener('click', async () => {
   er.textContent = '';
